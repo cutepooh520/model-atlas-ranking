@@ -88,6 +88,30 @@ main{padding:0 12px 70px}header{height:63px}.brand{font-size:16px}.head-note{fon
 .num{font-size:17px;text-align:right;width:auto;line-height:1.15}.num:after{font-size:9px;margin-top:2px}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
+/* Compare exactly the models the reader has checked */
+.picker{border-bottom:1px solid var(--stroke);background:#102019}
+.picker-top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 20px}
+.picker-description{display:flex;flex-wrap:wrap;align-items:baseline;gap:7px 15px}
+.picker-kicker{flex-basis:100%;letter-spacing:1.5px;color:#8ce8ba;font-size:10px;font-weight:800}
+.picker-description strong{font-size:15px;letter-spacing:.1px}
+.picker-summary{font-size:12px;color:var(--muted)}
+.picker-open{flex-shrink:0;background:#88ecc1;border:1px solid #88ecc1;border-radius:9px;padding:10px 15px;color:#08241b;font-weight:800;font-size:12px;min-height:44px}
+.picker-open:hover{background:#b1f5d6}.picker-open:focus-visible,.picker-panel button:focus-visible,.picker-choice:focus-within{outline:2px solid #94eec7;outline-offset:2px}
+.picker-panel{padding:14px 20px 18px;border-top:1px solid #355142}
+.picker-panel[hidden]{display:none}
+.picker-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#a3bbaf;font-size:12px;margin-bottom:15px}
+.picker-actions>div{display:flex;gap:8px}
+.picker-actions button{background:#1a3227;border:1px solid #466554;color:#b6ebd1;padding:8px 12px;border-radius:8px;font-size:12px}
+.picker-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.picker-group{border:1px solid #314b3f;background:#101d18;padding:12px;border-radius:11px;min-width:0}
+.picker-group-heading{font-size:11px;font-weight:800;color:#b2cfc0;letter-spacing:.8px;margin-bottom:9px}
+.picker-choice{display:flex;align-items:center;gap:10px;border-radius:8px;padding:9px 8px;min-height:44px;color:#dbece4;font-size:13px;cursor:pointer;overflow-wrap:anywhere}
+.picker-choice:hover{background:#193429}
+.picker-choice input{width:18px;height:18px;flex-shrink:0;accent-color:#88ecc1;cursor:pointer}
+.picker-done{background:#294438;color:#d2f0e0;border:1px solid #567a64;border-radius:9px;padding:10px 18px;font-size:12px;font-weight:800;margin-top:14px}
+.no-selection{padding:55px 18px;color:#9fb5b9;text-align:center;line-height:1.8}
+@media(max-width:820px){.picker-top{padding:13px 12px;gap:8px}.picker-description strong{font-size:13px}.picker-kicker{font-size:9px}.picker-open{padding:9px 11px}.picker-panel{padding:10px 12px 14px}.picker-actions{align-items:flex-start;flex-direction:column}.picker-groups{grid-template-columns:1fr;gap:9px}.picker-group{padding:7px 9px}.picker-choice{padding:7px 8px}.picker-done{width:100%;min-height:44px}}
 </style>
 </head>
 <body>
@@ -115,6 +139,17 @@ main{padding:0 12px 70px}header{height:63px}.brand{font-size:16px}.head-note{fon
 <select id="sort" aria-label="排行排序"><option value="desc">能力由高到低</option><option value="asc">能力由低到高</option><option value="name">模型名稱</option><option value="price">每題成本由低到高</option></select>
 </div>
 </div>
+<section class="picker" aria-label="自選比較模型">
+<div class="picker-top">
+  <div class="picker-description"><span class="picker-kicker">CUSTOM MODEL SELECTION</span><strong>自選想比較的模型</strong><span id="pickerSummary" class="picker-summary" aria-live="polite">已選 9／9 款模型</span></div>
+  <button type="button" id="pickerToggle" class="picker-open" aria-expanded="false" aria-controls="pickerPanel">☑ 勾選模型 <span aria-hidden="true" id="pickerArrow">⌄</span></button>
+</div>
+<div id="pickerPanel" class="picker-panel" hidden>
+ <div class="picker-actions"><span>勾選後排行榜立即更新，選擇會保留在這台裝置。</span><div><button type="button" id="pickerAll">全部勾選</button><button type="button" id="pickerClear">全部取消</button></div></div>
+ <div id="pickerGroups" class="picker-groups"></div>
+ <button type="button" id="pickerDone" class="picker-done">完成選擇</button>
+</div>
+</section>
 <div class="filters">
 <div class="segment" id="companies" role="group" aria-label="篩選公司">
 <button type="button" data-company="all" aria-pressed="true">全部公司</button>
@@ -137,11 +172,14 @@ const MODELS = [{"name":"Claude Opus 5.5","company":"C","score":72.6,"effort":"M
 const $ = id => document.getElementById(id);
 const LABEL = {'0':'none',Min:'minimal',L:'low',M:'medium',H:'high',X:'xhigh',Max:'max',Budget:'budget','一般':'standard','固定':'fixed',Thinking:'thinking'};
 const COMPANY = {G:'Google',O:'OpenAI',C:'Claude'};
+const PICKER_STORE_KEY='model-atlas-selected-models-v1';
+let selectedModels=new Set(MODELS.map(m=>m.name));
+try{const saved=JSON.parse(localStorage.getItem(PICKER_STORE_KEY));if(Array.isArray(saved)){selectedModels=new Set(saved.filter(name=>MODELS.some(m=>m.name===name)));}}catch(_){/* Unavailable storage: selection still works in the current tab. */}
 let mode='all', company='all', effort='all', sort='desc', query='', includeMissing=true;
 const escapeText=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const scored=m=>Object.entries(m.evidence||{}).filter(([key,value])=>m.levels.includes(key)&&Number.isFinite(value));
 function availableRows(){
-const models=MODELS.filter(m=>(company==='all'||m.company===company)&&m.name.toLowerCase().includes(query));
+const models=MODELS.filter(m=>selectedModels.has(m.name)&&(company==='all'||m.company===company)&&m.name.toLowerCase().includes(query));
 let entries=[];
 for(const m of models){
  const valid=scored(m);
@@ -183,11 +221,49 @@ const entryHTML=(r,i,isMissing)=>{
  '<div class="num '+(isMissing?'blank':'')+'">'+value+'</div></div>'+
  '<div class="side">'+price+'</div></div>';
 };
-$('rows').innerHTML=tested.map((r,i)=>entryHTML(r,i,false)).join('')||'<div class="nodata">目前篩選條件沒有完整綜合分數，請查看下方未評測配置或調整篩選。</div>';
+$('rows').innerHTML=tested.map((r,i)=>entryHTML(r,i,false)).join('')||(selectedModels.size===0?'<div class="no-selection">尚未勾選任何模型<br>請按上方「☑ 勾選模型」選擇要比較的模型。</div>':'<div class="nodata">目前篩選條件沒有完整綜合分數，請查看下方未評測配置或調整篩選。</div>');
 $('unscoredSection').hidden=!(includeMissing&&pending.length);
 $('unscoredCount').textContent='另外 '+pending.length+' 組尚未評測';
 $('unscoredRows').innerHTML=includeMissing?pending.map((r,i)=>entryHTML(r,i,true)).join(''):'';
 }
+function saveSelection(){try{localStorage.setItem(PICKER_STORE_KEY,JSON.stringify([...selectedModels]))}catch(_){/* storage unavailable */}}
+function renderPicker(){
+ $('pickerSummary').textContent='已選 '+selectedModels.size+'／'+MODELS.length+' 款模型';
+ const groups=[['G','Google'],['O','OpenAI'],['C','Claude']];
+ $('pickerGroups').innerHTML=groups.map(([code,title])=>
+ '<div class="picker-group"><div class="picker-group-heading">'+title+'</div>'+
+ MODELS.filter(m=>m.company===code).map(m=>
+ '<label class="picker-choice"><input type="checkbox" data-model-id="'+m.id+'" '+(selectedModels.has(m.name)?'checked':'')+'><span>'+escapeText(m.name)+'</span></label>').join('')+
+ '</div>').join('');
+}
+function updateSelection(next){
+ selectedModels=new Set(next);
+ renderPicker();saveSelection();render();
+}
+$('pickerToggle').addEventListener('click',()=>{
+ const opening=$('pickerPanel').hidden;
+ $('pickerPanel').hidden=!opening;
+ $('pickerToggle').setAttribute('aria-expanded',String(opening));
+ $('pickerArrow').textContent=opening?'⌃':'⌄';
+});
+$('pickerDone').addEventListener('click',()=>{
+ $('pickerPanel').hidden=true;
+ $('pickerToggle').setAttribute('aria-expanded','false');
+ $('pickerArrow').textContent='⌄';
+ $('pickerToggle').focus();
+});
+$('pickerAll').addEventListener('click',()=>updateSelection(MODELS.map(m=>m.name)));
+$('pickerClear').addEventListener('click',()=>updateSelection([]));
+$('pickerGroups').addEventListener('change',e=>{
+ const checkbox=e.target.closest('input[type="checkbox"][data-model-id]');
+ if(!checkbox)return;
+ const model=MODELS.find(m=>m.id===Number(checkbox.dataset.modelId));
+ if(!model)return;
+ const next=new Set(selectedModels);
+ if(checkbox.checked)next.add(model.name);else next.delete(model.name);
+ updateSelection(next);
+});
+renderPicker();
 $('search').addEventListener('input',e=>{query=e.target.value.trim().toLowerCase();render()});
 $('effort').addEventListener('change',e=>{effort=e.target.value;render()});
 $('sort').addEventListener('change',e=>{sort=e.target.value;render()});
